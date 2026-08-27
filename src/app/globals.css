@@ -1,0 +1,438 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --app-bg: #e9f2f3;
+  --app-bg-soft: #f6fafb;
+  --surface: #ffffff;
+  --surface-soft: #f1f7f7;
+  --border: #d3e2e4;
+  --text: #0b2024;
+  --muted: #5c7680;
+  --accent: #0f766e;
+  --accent-bright: #0d9488;
+  --accent-soft: #e0f4f1;
+  --ring: rgba(13, 148, 136, 0.18);
+}
+
+:root.dark {
+  color-scheme: dark;
+  --app-bg: #040b0f;
+  --app-bg-soft: #08151c;
+  --surface: #0b1a20;
+  --surface-soft: #0f2229;
+  --border: #1e3a43;
+  --text: #e4f2f2;
+  --muted: #8fa8ae;
+  --accent: #2dd4bf;
+  --accent-bright: #22d3ee;
+  --accent-soft: #082b29;
+  --ring: rgba(45, 212, 191, 0.2);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(ellipse 70% 55% at 12% -10%, rgba(20, 184, 166, 0.16), transparent 55%),
+    radial-gradient(ellipse 55% 45% at 88% 8%, rgba(34, 211, 238, 0.1), transparent 50%),
+    radial-gradient(ellipse 45% 40% at 50% 110%, rgba(16, 185, 129, 0.08), transparent 55%),
+    linear-gradient(180deg, var(--app-bg-soft), var(--app-bg));
+  color: var(--text);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.dark .bg-white {
+  background-color: var(--surface);
+}
+
+.dark .bg-white\/90 {
+  background-color: rgba(11, 26, 32, 0.9);
+}
+
+.dark .bg-white\/85 {
+  background-color: rgba(11, 26, 32, 0.85);
+}
+
+.dark .bg-white\/80 {
+  background-color: rgba(11, 26, 32, 0.8);
+}
+
+.dark .bg-white\/70 {
+  background-color: rgba(11, 26, 32, 0.7);
+}
+
+.dark .bg-white\/60 {
+  background-color: rgba(11, 26, 32, 0.6);
+}
+
+.dark .bg-white\/95 {
+  background-color: rgba(11, 24, 30, 0.94);
+}
+
+.dark .bg-slate-50,
+.dark .bg-slate-100 {
+  background-color: var(--surface-soft);
+}
+
+.dark .bg-slate-50\/80 {
+  background-color: rgba(15, 34, 41, 0.8);
+}
+
+.dark .hover\:bg-slate-50:hover,
+.dark .hover\:bg-slate-100:hover {
+  background-color: #14303a;
+}
+
+.dark .hover\:bg-cyan-50\/40:hover {
+  background-color: rgba(8, 145, 178, 0.16);
+}
+
+.dark .hover\:bg-cyan-50\/50:hover {
+  background-color: rgba(8, 145, 178, 0.2);
+}
+
+.dark .bg-cyan-50 {
+  background-color: rgba(8, 145, 178, 0.14);
+}
+
+.dark .bg-cyan-100,
+.dark .hover\:bg-cyan-100:hover {
+  background-color: rgba(8, 145, 178, 0.22);
+}
+
+.dark .bg-emerald-50 {
+  background-color: rgba(16, 185, 129, 0.13);
+}
+
+.dark .bg-red-50 {
+  background-color: rgba(239, 68, 68, 0.13);
+}
+
+.dark .bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.13);
+}
+
+.dark .border-slate-200,
+.dark .border-slate-300 {
+  border-color: var(--border);
+}
+
+.dark .border-cyan-300 {
+  border-color: rgba(103, 232, 249, 0.38);
+}
+
+.dark .border-emerald-200 {
+  border-color: rgba(110, 231, 183, 0.28);
+}
+
+.dark .border-cyan-200 {
+  border-color: rgba(34, 211, 238, 0.32);
+}
+
+.dark .text-slate-950,
+.dark .text-slate-800,
+.dark .text-slate-700 {
+  color: var(--text);
+}
+
+.dark .text-slate-600,
+.dark .text-slate-500,
+.dark .text-slate-400 {
+  color: var(--muted);
+}
+
+.dark .text-emerald-700 {
+  color: #6ee7b7;
+}
+
+.dark .text-amber-700 {
+  color: #fcd34d;
+}
+
+.dark .text-red-700 {
+  color: #fca5a5;
+}
+
+.dark .text-cyan-800,
+.dark .text-sky-700 {
+  color: #67e8f9;
+}
+
+.dark .text-cyan-600,
+.dark .text-emerald-600,
+.dark .text-amber-600,
+.dark .text-red-600 {
+  color: inherit;
+}
+
+.dark input,
+.dark select {
+  background-color: #07141a;
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.dark .shadow-sm,
+.dark .shadow-lg {
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+}
+
+.dark .text-cyan-950,
+.dark .text-emerald-950,
+.dark .text-red-950 {
+  color: var(--text);
+}
+
+.dark .bg-cyan-100 {
+  background-color: rgba(8, 145, 178, 0.22);
+}
+
+.dark .bg-emerald-100 {
+  background-color: rgba(16, 185, 129, 0.18);
+}
+
+.dark .bg-red-100 {
+  background-color: rgba(239, 68, 68, 0.18);
+}
+
+/* Dark mode readability: tambahkan overrides warna semantik supaya teks
+   pada background berwarna tetap terbaca dan tidak bertabrakan. */
+.dark .bg-white\/45 {
+  background-color: rgba(11, 26, 32, 0.72);
+}
+
+.dark .bg-white\/50 {
+  background-color: rgba(11, 26, 32, 0.74);
+}
+
+.dark .bg-white\/55 {
+  background-color: rgba(11, 26, 32, 0.78);
+}
+
+.dark .bg-white\/75 {
+  background-color: rgba(11, 26, 32, 0.82);
+}
+
+.dark .bg-slate-50\/70 {
+  background-color: rgba(15, 34, 41, 0.7);
+}
+
+.dark .bg-slate-200\/60 {
+  background-color: rgba(100, 116, 139, 0.28);
+}
+
+.dark .bg-teal-50 {
+  background-color: rgba(13, 148, 136, 0.13);
+}
+
+.dark .bg-teal-100 {
+  background-color: rgba(13, 148, 136, 0.22);
+}
+
+.dark .bg-sky-50 {
+  background-color: rgba(14, 165, 233, 0.12);
+}
+
+.dark .bg-sky-100 {
+  background-color: rgba(14, 165, 233, 0.2);
+}
+
+.dark .bg-rose-50 {
+  background-color: rgba(244, 63, 94, 0.12);
+}
+
+.dark .bg-rose-100 {
+  background-color: rgba(244, 63, 94, 0.2);
+}
+
+.dark .bg-violet-50 {
+  background-color: rgba(139, 92, 246, 0.14);
+}
+
+.dark .bg-violet-100 {
+  background-color: rgba(139, 92, 246, 0.22);
+}
+
+.dark .bg-orange-50 {
+  background-color: rgba(249, 115, 22, 0.13);
+}
+
+.dark .bg-lime-50 {
+  background-color: rgba(132, 204, 22, 0.13);
+}
+
+.dark .text-teal-600,
+.dark .text-teal-700,
+.dark .text-teal-800 {
+  color: #5eead4;
+}
+
+.dark .text-cyan-700 {
+  color: #67e8f9;
+}
+
+.dark .text-sky-600,
+.dark .text-sky-700,
+.dark .text-sky-800 {
+  color: #7dd3fc;
+}
+
+.dark .text-rose-600,
+.dark .text-rose-700,
+.dark .text-rose-800 {
+  color: #fda4af;
+}
+
+.dark .text-violet-600,
+.dark .text-violet-700,
+.dark .text-violet-800 {
+  color: #c4b5fd;
+}
+
+.dark .text-lime-700,
+.dark .text-lime-800 {
+  color: #bef264;
+}
+
+.dark .text-orange-700,
+.dark .text-orange-800 {
+  color: #fdba74;
+}
+
+.dark .text-amber-800,
+.dark .text-amber-900 {
+  color: #fcd34d;
+}
+
+.dark .text-emerald-800 {
+  color: #6ee7b7;
+}
+
+.dark .text-red-800 {
+  color: #fca5a5;
+}
+
+.dark .text-cyan-900 {
+  color: #a5f3fc;
+}
+
+.dark .border-teal-200 {
+  border-color: rgba(45, 212, 191, 0.28);
+}
+
+.dark .border-teal-300 {
+  border-color: rgba(45, 212, 191, 0.42);
+}
+
+.dark .border-sky-200 {
+  border-color: rgba(125, 211, 252, 0.28);
+}
+
+.dark .border-sky-300 {
+  border-color: rgba(125, 211, 252, 0.42);
+}
+
+.dark .border-rose-200 {
+  border-color: rgba(251, 113, 133, 0.28);
+}
+
+.dark .border-rose-300 {
+  border-color: rgba(251, 113, 133, 0.42);
+}
+
+.dark .border-red-200 {
+  border-color: rgba(248, 113, 113, 0.28);
+}
+
+.dark .border-red-300 {
+  border-color: rgba(248, 113, 113, 0.42);
+}
+
+.dark .border-amber-200 {
+  border-color: rgba(252, 211, 77, 0.28);
+}
+
+.dark .border-amber-300 {
+  border-color: rgba(252, 211, 77, 0.42);
+}
+
+.dark .border-violet-200 {
+  border-color: rgba(196, 181, 253, 0.28);
+}
+
+.dark .border-violet-300 {
+  border-color: rgba(196, 181, 253, 0.42);
+}
+
+.dark .border-lime-200 {
+  border-color: rgba(190, 242, 100, 0.28);
+}
+
+.dark .hover\:bg-red-50:hover {
+  background-color: rgba(239, 68, 68, 0.14);
+}
+
+.dark .hover\:bg-red-100:hover {
+  background-color: rgba(239, 68, 68, 0.22);
+}
+
+.dark .hover\:bg-amber-100:hover {
+  background-color: rgba(245, 158, 11, 0.22);
+}
+
+.dark .hover\:bg-white\/80:hover {
+  background-color: rgba(11, 26, 32, 0.8);
+}
+
+.toast-pop {
+  animation: toast-pop 180ms ease-out;
+}
+
+@keyframes toast-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-0.5rem) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.text-gradient {
+  background-image: linear-gradient(115deg, var(--accent) 0%, var(--accent-bright) 60%, #38bdf8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.premium-card {
+  border: 1px solid var(--border);
+  background-color: color-mix(in srgb, var(--surface) 88%, transparent);
+  box-shadow:
+    0 1px 2px rgba(11, 32, 36, 0.04),
+    0 12px 32px -12px rgba(11, 32, 36, 0.12);
+  backdrop-filter: blur(10px);
+}
+
+.dark .premium-card {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.25),
+    0 18px 44px -18px rgba(0, 0, 0, 0.55);
+}
