@@ -31,6 +31,8 @@ type PartialOnu = {
   lastDownReason?: string
   lastOnline?: string
   lastOffline?: string
+  distanceMeters?: number | null
+  description?: string
 }
 
 const hsgqGponOids = {
@@ -79,6 +81,7 @@ const zteC320Oids = {
   onuLastOnline: "1.3.6.1.4.1.3902.1082.500.10.2.3.8.1.5",
   onuLastOffline: "1.3.6.1.4.1.3902.1082.500.10.2.3.8.1.6",
   onuLastDownReason: "1.3.6.1.4.1.3902.1082.500.10.2.3.8.1.7",
+  gponDistance: "1.3.6.1.4.1.3902.1082.500.10.2.3.10.1.2",
   opticalBase: "1.3.6.1.4.1.3902.1082.500.20.2.2.2.1",
   rxPower: "1.3.6.1.4.1.3902.1082.500.20.2.2.2.1.10",
   txPower: "1.3.6.1.4.1.3902.1082.500.20.2.2.2.1.12",
@@ -189,12 +192,52 @@ function statusFromRunState(runState: string | undefined): Onu["status"] {
 }
 
 function statusFromZteRunState(runState: string | undefined): Onu["status"] {
-  // ZTE C320 status values observed from live device:
-  //   4 = Online, 7 = Offline
-  // other codes are treated as offline for monitoring purposes.
+  // ZTE C320 status values observed from live + CLI detail-info:
+  //   1 = LOS, 4 = Online/working, 6/7 = OffLine, DyingGasp juga offline tapi beda phase
+  // LOS dipisah agar UI bisa tampil merah LOS sesuai Phase state OLT
   const value = String(runState)
-  if (value === "4") return "online"
+  if (value === "4" || value === "3") return "online"
+  if (value === "1" || value === "2") return "los"
+  // DyingGasp (5) dan Power off (9) tetap offline di badge utama, tapi phaseState beda
   return "offline"
+}
+
+function ztePhaseStateFromRunState(runState: string | undefined, downReason: string | undefined): string {
+  const v = String(runState || "").trim()
+  if (v === "4" || v === "3") return "Online"
+  if (v === "1") return "LOS"
+  if (v === "2") return "LOS"
+  if (v === "5") return "DyingGasp"
+  if (v === "6" || v === "7") {
+    // 6/7 sering OffLine, tapi kalau reason DyingGasp tampilkan DyingGasp
+    const dr = normalizeDownReason(downReason)
+    if (dr === "Dying gasp" || dr === "Power off" || dr?.toLowerCase().includes("dying")) return "DyingGasp"
+    if (dr === "LOS" || dr === "LOSi" || dr === "LOFi") return "LOS"
+    return "OffLine"
+  }
+  // fallback pakai lastDownReason biar LOS/DyingGasp tetap ketahuan walau status 7
+  const dr = normalizeDownReason(downReason)
+  if (dr === "Dying gasp" || dr === "Power off") return "DyingGasp"
+  if (dr === "LOS" || dr === "LOSi" || dr === "LOFi" ) return "LOS"
+  if (dr === "LOAMi") return "LOS"
+  if (!v || v === "0") return "OffLine"
+  return `OffLine (${v})`
+}
+
+function formatOnlineDuration(lastOnline: string | undefined, lastOffline: string | undefined, status: Onu["status"]): string | null {
+  const online = String(lastOnline || "").trim()
+  const offline = String(lastOffline || "").trim()
+  // OLT kirim format "2017-02-06 00:14:32" atau "0000-00-00 00:00:00" / "0h 0m 0s" fallback
+  if (status === "online" && online && !online.startsWith("0000") && online !== "0") return online
+  if (status !== "online" && offline && !offline.startsWith("0000") && offline !== "0") return offline
+  // jika device tidak kasih durasi, hitung dari string kosong -> N/A akan dirender di UI
+  return "0h 0m 0s"
+}
+
+function toDistanceMeters(value: string | undefined): number | null {
+  const n = toNumber(value)
+  if (n === null || n < 0 || n > 40000) return null
+  return Math.round(n)
 }
 
 function statusFromVsolCode(statusCode: string | undefined): Onu["status"] {
@@ -218,7 +261,11 @@ function normalizeDownReason(value: string | undefined) {
     "9": "Power off",
   }
 
-  return numericReasons[text] || text
+  const mapped = numericReasons[text] || text
+  // Samakan DyingGasp = PowerFailed sesuai permintaan OLT
+  if (mapped === "Dying gasp") return "PowerFailed (DyingGasp)"
+  if (mapped === "Power off") return "PowerFailed (Power off)"
+  return mapped
 }
 
 function normalizeZteSerial(value: string | undefined) {
@@ -327,6 +374,12 @@ function mapZteOnus(olt: Olt, items: PartialOnu[]): Onu[] {
       const status = statusFromZteRunState(item.runState)
       const board = idx.board > 0 ? `${idx.board}/` : ""
       const fallbackName = item.serial ? `ONU-${item.serial}` : `ONU-${board}${idx.pon}/${idx.onuId}`
+      const downReason = normalizeDownReason(item.lastDownReason)
+      const phaseState = ztePhaseStateFromRunState(item.runState, item.lastDownReason)
+      const distance = typeof item.distanceMeters === "number" ? item.distanceMeters : 0
+      // Config state di ZTE tidak ada OID langsung; infer dari phase+distance: OffLine+N/A => fail, LOS+distance => success
+      const isDistanceValid = typeof item.distanceMeters === "number" && item.distanceMeters > 0
+      const configState = phaseState === "LOS" ? "success" : phaseState === "Online" ? "success" : isDistanceValid ? "success" : "fail"
 
       return {
         id: `${olt.id}-${item.ontIndex}`,
@@ -339,10 +392,19 @@ function mapZteOnus(olt: Olt, items: PartialOnu[]): Onu[] {
         rxPower: item.rxPower ?? 0,
         txPower: item.txPower ?? 0,
         temperatureC: item.temperature ?? null,
-        downReason: normalizeDownReason(item.lastDownReason),
-        distanceMeters: 0,
+        downReason,
+        distanceMeters: distance,
         lastSeen: "Baru saja",
         syncStatus: "synced" as const,
+        phaseState,
+        adminState: "enable",
+        configState,
+        onuState: "ready",
+        onuModel: item.model || null,
+        onuDescription: item.description || null,
+        onlineDuration: formatOnlineDuration(item.lastOnline, item.lastOffline, status),
+        lastOnline: item.lastOnline || null,
+        lastOffline: item.lastOffline || null,
       }
     })
     .sort((a, b) => {
@@ -805,6 +867,30 @@ export async function pollOnusFromOlt(olt: Olt) {
       assignByColumn(onusByIndex, lastDownRows, zteC320Oids.onuLastDownReason, "lastDownReason")
       assignByColumn(onusByIndex, lastOnlineRows, zteC320Oids.onuLastOnline, "lastOnline")
       assignByColumn(onusByIndex, lastOfflineRows, zteC320Oids.onuLastOffline, "lastOffline")
+
+      // Description (untuk kolom Description di detail-info)
+      try {
+        const descRows = await walk(snmp, session, zteC320Oids.onuDescription, 1200)
+        assignByColumn(onusByIndex, descRows, zteC320Oids.onuDescription, "description")
+      } catch {}
+
+      // Distance + polling chunked (seperti rxPower) - distance 0/N/A = fail
+      try {
+        const distanceRows = await getColumnForIndexes(
+          snmp,
+          session,
+          zteC320Oids.gponDistance,
+          [...onusByIndex.keys()],
+          24,
+        )
+        for (const row of distanceRows) {
+          const idx = row.oid.replace(`${zteC320Oids.gponDistance}.`, "")
+          const entry = onusByIndex.get(idx)
+          if (entry) entry.distanceMeters = toDistanceMeters(row.value)
+        }
+      } catch (error) {
+        console.warn(`[snmp] Gagal membaca distance ${olt.name}: ${error instanceof Error ? error.message : error}.`)
+      }
 
       // ZTE C320 dapat hang saat walk tree rxPower (enumerasi besar). Dipakai
       // get chunked per-ONU seperti VSOL agar agent tidak jenuh. Jika tetap

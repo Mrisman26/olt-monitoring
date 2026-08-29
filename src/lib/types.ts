@@ -51,6 +51,16 @@ export type Onu = {
   lastSeen: string
   syncStatus: "synced" | "pending" | "failed" | "local-only"
   inventory?: InventoryFields
+  // ZTE detail-info 1:1 dengan OLT CLI
+  phaseState?: string | null
+  adminState?: string | null
+  configState?: string | null
+  onuState?: string | null
+  onuModel?: string | null
+  onuDescription?: string | null
+  onlineDuration?: string | null
+  lastOnline?: string | null
+  lastOffline?: string | null
 }
 
 export type Alert = {

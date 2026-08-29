@@ -1,7 +1,7 @@
 import { readMonitoringStateLite } from "@/lib/server-db"
 import { isPollingOlt, pollOltAndSave } from "@/lib/polling"
 
-const workerTickMs = 5000
+const workerTickMs = 2000
 
 type PollingWorkerGlobal = typeof globalThis & {
   __mikroinPollingWorkerStarted?: boolean
@@ -21,7 +21,7 @@ export function startPollingWorker() {
 
       await Promise.all(
         state.olts.map(async (olt) => {
-          const intervalSeconds = Math.max(10, Number(olt.pollingInterval) || 60)
+          const intervalSeconds = Math.max(5, Number(olt.pollingInterval) || 15)
           const intervalMs = intervalSeconds * 1000
           const lastPolled = lastPolledAt.get(olt.id) ?? 0
 

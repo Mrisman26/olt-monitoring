@@ -94,7 +94,7 @@ export const emptyForm: OltForm = {
   readCommunity: "public",
   writeCommunity: "",
   oidProfile: "vsol-gpon",
-  pollingInterval: "60",
+  pollingInterval: "15",
   cardName: "GTGH",
   writeMode: "none",
   cliPort: "23",

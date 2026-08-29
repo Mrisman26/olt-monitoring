@@ -426,17 +426,9 @@ export function OnuView(props: {
 
                   <DataTableHeader label="RX" sortKey="rx" activeKey={sortKey} direction={sortDirection} onSort={handleSort} />
 
-                  {/* <DataTableHeader
-                    label="Suhu"
-                    sortKey="temperature"
-                    activeKey={sortKey}
-                    direction={sortDirection}
-                    onSort={handleSort}
-                  /> */}
+                  <th className="px-4 py-3 font-semibold">Phase</th>
 
-                  {/* <th className="px-4 py-3 font-semibold">
-                    Kasus Down
-                  </th> */}
+                  <th className="px-4 py-3 font-semibold">Distance</th>
 
                   <DataTableHeader label="Status" sortKey="status" activeKey={sortKey} direction={sortDirection} onSort={handleSort} />
                 </tr>
@@ -445,13 +437,13 @@ export function OnuView(props: {
               <tbody className="divide-y divide-slate-100">
                 {loading && paginatedOnus.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center">
+                    <td colSpan={8} className="px-4 py-12 text-center">
                       <div className="text-sm font-semibold text-slate-500">Memuat data...</div>
                     </td>
                   </tr>
                 ) : paginatedOnus.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center">
+                    <td colSpan={8} className="px-4 py-12 text-center">
                       <div className="text-sm font-semibold text-slate-700">Data tidak ditemukan</div>
 
                       <div className="mt-1 text-xs text-slate-400">Coba ubah kata pencarian atau filter status.</div>
@@ -462,7 +454,11 @@ export function OnuView(props: {
                     <Fragment key={onu.id}>
                       <tr
                         className={`group bg-[var(--surface)] transition hover:bg-teal-600/5 ${
-                          onu.status === "online" ? "shadow-[inset_3px_0_0_0_rgba(16,185,129,0.45)]" : "shadow-[inset_3px_0_0_0_rgba(244,63,94,0.55)]"
+                          onu.status === "online"
+                            ? "shadow-[inset_3px_0_0_0_rgba(16,185,129,0.45)]"
+                            : onu.status === "los"
+                              ? "shadow-[inset_3px_0_0_0_rgba(239,68,68,0.75)]"
+                              : "shadow-[inset_3px_0_0_0_rgba(148,163,184,0.7)]"
                         }`}
                       >
                         {/* Checkbox */}
@@ -523,30 +519,43 @@ export function OnuView(props: {
                           <SignalBadge value={formatRxPower(onu.rxPower)} tone={rxTone(onu.rxPower)} />
                         </td>
 
-                        {/* Temperature
+                        {/* Phase - 1:1 dengan CLI Phase state */}
                         <td className="px-4 py-3">
-                          <SignalBadge
-                            value={formatTemperature(
-                              onu.temperatureC
-                            )}
-                            tone={temperatureTone(
-                              onu.temperatureC
-                            )}
-                          />
-                        </td> */}
-
-                        {/* Down reason
-                        <td className="px-4 py-3">
-                          {onu.status === "online" ? (
-                            <span className="text-slate-300">
-                              —
+                          {ztePon ? (
+                            <span
+                              className={`inline-flex rounded-lg border px-2.5 py-1 text-xs font-semibold ${
+                                onu.phaseState === "Online"
+                                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                  : onu.phaseState === "LOS"
+                                    ? "border-red-200 bg-red-50 text-red-700"
+                                    : onu.phaseState === "DyingGasp"
+                                      ? "border-amber-200 bg-amber-50 text-amber-700"
+                                      : "border-slate-200 bg-slate-50 text-slate-600"
+                              }`}
+                              title={onu.downReason || ""}
+                            >
+                              {onu.phaseState || (onu.status === "online" ? "Online" : onu.status === "los" ? "LOS" : "OffLine")}
                             </span>
                           ) : (
-                            <span className="inline-flex max-w-[160px] truncate rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700">
-                              {onu.downReason || "Down"}
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+
+                        {/* Distance - 1:1 dengan CLI ONU Distance */}
+                        <td className="px-4 py-3">
+                          <span className="font-mono text-xs font-medium text-slate-600">
+                            {ztePon ? (onu.distanceMeters && onu.distanceMeters > 0 ? `${onu.distanceMeters}m` : "N/A") : "-"}
+                          </span>
+                          {ztePon && onu.configState && (
+                            <span
+                              className={`ml-1 inline-flex rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
+                                onu.configState === "success" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
+                              }`}
+                            >
+                              {onu.configState}
                             </span>
                           )}
-                        </td> */}
+                        </td>
 
                         {/* Status */}
                         <td className="px-4 py-3">
@@ -556,7 +565,26 @@ export function OnuView(props: {
 
                       {expandedOnuId === onu.id && (
                         <tr>
-                          <td colSpan={6} className="border-t border-slate-100 bg-slate-50/80 px-6 py-3 dark:border-slate-700 dark:bg-slate-800/60">
+                          <td colSpan={8} className="border-t border-slate-100 bg-slate-50/80 px-6 py-4 dark:border-slate-700 dark:bg-slate-800/60">
+                            {/* Detail ringkas - field hex / redundant disembunyikan sesuai request */}
+                            <div className="mb-3 grid grid-cols-2 gap-2 text-xs md:grid-cols-4">
+                              <div className="rounded-lg bg-white p-2.5 dark:bg-slate-700">
+                                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Type</div>
+                                <div className="font-semibold text-slate-700 dark:text-slate-200">{onu.onuModel || "-"}</div>
+                              </div>
+                              <div className="rounded-lg bg-white p-2.5 dark:bg-slate-700">
+                                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Description</div>
+                                <div className="font-semibold text-slate-700 dark:text-slate-200">{onu.onuDescription || "-"}</div>
+                              </div>
+                              <div className="rounded-lg bg-white p-2.5 dark:bg-slate-700">
+                                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Phase state</div>
+                                <div className={`font-semibold ${onu.phaseState === "LOS" ? "text-red-600" : onu.phaseState === "DyingGasp" ? "text-amber-600" : onu.phaseState === "Online" ? "text-emerald-600" : "text-slate-600"}`}>{onu.phaseState || "-"} {onu.phaseState === "DyingGasp" ? "(PowerFailed)" : ""}</div>
+                              </div>
+                              <div className="rounded-lg bg-white p-2.5 dark:bg-slate-700">
+                                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Config state</div>
+                                <div className={`font-semibold ${onu.configState === "fail" ? "text-red-600" : "text-emerald-600"}`}>{onu.configState || "-"}</div>
+                              </div>
+                            </div>
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="mr-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Aksi</span>
                               <OnuActionDropdown
