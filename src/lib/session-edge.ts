@@ -2,12 +2,13 @@ export const SESSION_COOKIE = "mikroin-session"
 
 export function buildSessionCookieValue(token: string, maxAgeMs: number): string {
   const maxAge = Math.floor(maxAgeMs / 1000)
-  const isProd = process.env.NODE_ENV === "production"
-  return `${SESSION_COOKIE}=${token}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Strict${isProd ? "; Secure" : ""}`
+  const secure = process.env.COOKIE_SECURE === "true"
+  return `${SESSION_COOKIE}=${token}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`
 }
 
 export function clearSessionCookie(): string {
-  return `${SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict`
+  const secure = process.env.COOKIE_SECURE === "true"
+  return `${SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`
 }
 
 export function getSessionTokenFromCookie(cookieHeader: string | null): string | null {
