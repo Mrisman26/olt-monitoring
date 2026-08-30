@@ -26,7 +26,6 @@ export function LoginForm() {
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ username, password }),
       })
       const result = (await response.json()) as { ok: boolean; message: string; session?: AuthSession }
@@ -39,7 +38,7 @@ export function LoginForm() {
       window.localStorage.setItem(authStorageKey, JSON.stringify(result.session))
       window.dispatchEvent(new Event("mikroin-auth-change"))
       setMessage("Login berhasil. Membuka dashboard...")
-      window.location.replace("/")
+      router.replace("/")
     } catch {
       setMessage("Login belum bisa diproses. Cek server lokal.")
     } finally {
