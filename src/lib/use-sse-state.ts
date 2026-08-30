@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 
+import { authStorageKey } from "@/lib/auth-types"
 import type { Alert, MonitoringState } from "@/lib/types"
 
 type SSEState = MonitoringState & {
@@ -41,8 +42,23 @@ export function useSseState() {
         eventSourceRef.current.close()
       }
 
+      // jangan buka SSE di /login atau sebelum ada session -> hindari loop 401
+      if (typeof window !== "undefined" && !window.localStorage.getItem(authStorageKey)) {
+        setConnected(false)
+        reconnectTimerRef.current = setTimeout(() => setupRef.current(), 2000)
+        return
+      }
+
       const es = new EventSource("/api/monitoring/sse")
       eventSourceRef.current = es
+
+      es.onopen = () => {
+        setConnected(true)
+        if (reconnectTimerRef.current) {
+          clearTimeout(reconnectTimerRef.current)
+          reconnectTimerRef.current = null
+        }
+      }
 
       es.addEventListener("state", (event) => {
         try {
@@ -61,7 +77,7 @@ export function useSseState() {
 
         reconnectTimerRef.current = setTimeout(() => {
           setupRef.current()
-        }, 5000)
+        }, 1000)
       })
     }
 

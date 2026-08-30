@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import "./globals.css"
+import { SseProvider } from "@/lib/sse-provider"
 
 export const metadata: Metadata = {
   title: "L1V Monitor",
@@ -31,7 +32,9 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body>{children}</body>
+      <body>
+        <SseProvider>{children}</SseProvider>
+      </body>
     </html>
   )
 }

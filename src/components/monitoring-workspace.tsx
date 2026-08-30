@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { useSseState } from "@/lib/use-sse-state"
+import { useSse } from "@/lib/sse-provider"
 import {
   type Alert,
   type MonitoringState,
@@ -90,7 +90,7 @@ export function MonitoringWorkspace({ view }: { view: View }) {
   const [operationalAlerts, setOperationalAlerts] = useState<Alert[]>([])
   const [refreshTick, setRefreshTick] = useState(0)
 
-  const { state: sseState, connected: sseConnected } = useSseState()
+  const { state: sseState, connected: sseConnected } = useSse()
 
   function showToast(message: string, tone: ToastTone = "info") {
     setToast({ message, tone })
