@@ -29,7 +29,7 @@ const nextConfig = {
       { key: "Content-Security-Policy", value: cspDirectives },
     ]
 
-    if (isProd) {
+    if (isProd && process.env.COOKIE_SECURE === "true") {
       securityHeaders.push({
         key: "Strict-Transport-Security",
         value: "max-age=63072000; includeSubDomains; preload",
