@@ -1,4 +1,4 @@
-import { readMonitoringState, writeMonitoringState, insertTrafficSamples, cleanupOldTraffic, insertRxPowerSamples, cleanupOldRxPower, insertOnuStatusLog, cleanupOldOnuStatusLog } from "@/lib/server-db"
+import { readMonitoringState, writeMonitoringState, insertTrafficSamples, cleanupOldTraffic, insertRxPowerSamples, cleanupOldRxPower, insertOnuStatusLog, cleanupOldOnuStatusLog, historyEnabled } from "@/lib/server-db"
 import { pollOnusFromOlt, pollTrafficCounters, type IfTrafficCounters } from "@/lib/snmp"
 import { notifyOltStatusChange, notifyOnuStatusChanges } from "@/lib/telegram"
 import type { Alert, MonitoringState, Olt, Onu, TrafficSample, RxPowerSample } from "@/lib/types"
@@ -255,30 +255,32 @@ export async function pollOltAndSave(requestedOlt: Olt): Promise<PollOltResult> 
 
       const transition = buildTransitionAlerts(state, olt, polledOnus)
 
-      try {
-        const now = new Date().toISOString().slice(0, 19).replace("T", " ")
-        const previousById = new Map(state.onus.filter((onu) => onu.oltId === olt.id).map((onu) => [onu.id, onu]))
-        for (const onu of polledOnus) {
-          const previous = previousById.get(onu.id)
-          if (!previous) continue
-          const wasOnline = previous.status === "online"
-          const isOnline = onu.status === "online"
-          if (wasOnline === isOnline) continue
-          await insertOnuStatusLog({
-            onuId: onu.id,
-            oltId: olt.id,
-            status: isOnline ? "online" : "offline",
-            cause: isOnline ? null : (onu.downReason || null),
-            timestamp: now,
-          })
+      if (historyEnabled()) {
+        try {
+          const now = new Date().toISOString().slice(0, 19).replace("T", " ")
+          const previousById = new Map(state.onus.filter((onu) => onu.oltId === olt.id).map((onu) => [onu.id, onu]))
+          for (const onu of polledOnus) {
+            const previous = previousById.get(onu.id)
+            if (!previous) continue
+            const wasOnline = previous.status === "online"
+            const isOnline = onu.status === "online"
+            if (wasOnline === isOnline) continue
+            await insertOnuStatusLog({
+              onuId: onu.id,
+              oltId: olt.id,
+              status: isOnline ? "online" : "offline",
+              cause: isOnline ? null : (onu.downReason || null),
+              timestamp: now,
+            })
+          }
+          onuStatusLogCleanupCounter++
+          if (onuStatusLogCleanupCounter >= 30) {
+            onuStatusLogCleanupCounter = 0
+            void cleanupOldOnuStatusLog(90)
+          }
+        } catch (statusLogError) {
+          console.warn(`[polling] Status log gagal untuk ${olt.name}: ${statusLogError instanceof Error ? statusLogError.message : statusLogError}`)
         }
-        onuStatusLogCleanupCounter++
-        if (onuStatusLogCleanupCounter >= 30) {
-          onuStatusLogCleanupCounter = 0
-          void cleanupOldOnuStatusLog(90)
-        }
-      } catch (statusLogError) {
-        console.warn(`[polling] Status log gagal untuk ${olt.name}: ${statusLogError instanceof Error ? statusLogError.message : statusLogError}`)
       }
       const oltRecoveryAlert = oltWasOffline ? buildOltTransitionAlert(state, olt, "recovery") : null
       const acknowledgedOldAlerts = state.alerts.map((alert) =>
@@ -305,91 +307,95 @@ export async function pollOltAndSave(requestedOlt: Olt): Promise<PollOltResult> 
       }
       const savedState = await writeMonitoringState(nextState, state)
 
-      try {
-        const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ")
-        const counters = await pollTrafficCounters(olt, polledOnus)
-        const now = Date.now()
-        const samples: TrafficSample[] = []
-        const MAX_BPS = 2_500_000_000
-        const MIN_ELAPSED_SEC = 10
+      if (historyEnabled()) {
+        try {
+          const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ")
+          const counters = await pollTrafficCounters(olt, polledOnus)
+          const now = Date.now()
+          const samples: TrafficSample[] = []
+          const MAX_BPS = 2_500_000_000
+          const MIN_ELAPSED_SEC = 10
 
-        for (const [onuId, current] of counters) {
-          const key = `${olt.id}:${onuId}`
-          const prev = prevTrafficCounters.get(key)
+          for (const [onuId, current] of counters) {
+            const key = `${olt.id}:${onuId}`
+            const prev = prevTrafficCounters.get(key)
 
-          if (prev) {
-            const elapsedSec = (now - prev.timestamp) / 1000
-            if (elapsedSec >= MIN_ELAPSED_SEC) {
-              const deltaIn = current.inOctets - prev.counters.inOctets
-              const deltaOut = current.outOctets - prev.counters.outOctets
-              if (deltaIn < 0n || deltaOut < 0n) {
-                prevTrafficCounters.set(key, { counters: current, timestamp: now })
-                continue
+            if (prev) {
+              const elapsedSec = (now - prev.timestamp) / 1000
+              if (elapsedSec >= MIN_ELAPSED_SEC) {
+                const deltaIn = current.inOctets - prev.counters.inOctets
+                const deltaOut = current.outOctets - prev.counters.outOctets
+                if (deltaIn < 0n || deltaOut < 0n) {
+                  prevTrafficCounters.set(key, { counters: current, timestamp: now })
+                  continue
+                }
+                const elapsed = BigInt(Math.round(elapsedSec))
+                const inBps = Number(deltaIn * 8n / elapsed)
+                const outBps = Number(deltaOut * 8n / elapsed)
+                const inPps = Number((current.inPkts - prev.counters.inPkts) / elapsed)
+                const outPps = Number((current.outPkts - prev.counters.outPkts) / elapsed)
+
+                samples.push({
+                  onuId,
+                  oltId: olt.id,
+                  timestamp,
+                  inputBps: Math.min(MAX_BPS, Math.max(0, inBps)),
+                  outputBps: Math.min(MAX_BPS, Math.max(0, outBps)),
+                  inputPps: Math.max(0, inPps),
+                  outputPps: Math.max(0, outPps),
+                })
               }
-              const elapsed = BigInt(Math.round(elapsedSec))
-              const inBps = Number(deltaIn * 8n / elapsed)
-              const outBps = Number(deltaOut * 8n / elapsed)
-              const inPps = Number((current.inPkts - prev.counters.inPkts) / elapsed)
-              const outPps = Number((current.outPkts - prev.counters.outPkts) / elapsed)
-
-              samples.push({
-                onuId,
-                oltId: olt.id,
-                timestamp,
-                inputBps: Math.min(MAX_BPS, Math.max(0, inBps)),
-                outputBps: Math.min(MAX_BPS, Math.max(0, outBps)),
-                inputPps: Math.max(0, inPps),
-                outputPps: Math.max(0, outPps),
-              })
             }
+
+            prevTrafficCounters.set(key, { counters: current, timestamp: now })
           }
 
-          prevTrafficCounters.set(key, { counters: current, timestamp: now })
-        }
+          if (samples.length > 0) {
+            await insertTrafficSamples(samples)
+          }
 
-        if (samples.length > 0) {
-          await insertTrafficSamples(samples)
+          trafficCleanupCounter++
+          if (trafficCleanupCounter >= 30) {
+            trafficCleanupCounter = 0
+            await cleanupOldTraffic(30)
+          }
+        } catch (trafficError) {
+          console.warn(`[polling] Traffic polling gagal untuk ${olt.name}: ${trafficError instanceof Error ? trafficError.message : trafficError}`)
         }
-
-        trafficCleanupCounter++
-        if (trafficCleanupCounter >= 30) {
-          trafficCleanupCounter = 0
-          await cleanupOldTraffic(30)
-        }
-      } catch (trafficError) {
-        console.warn(`[polling] Traffic polling gagal untuk ${olt.name}: ${trafficError instanceof Error ? trafficError.message : trafficError}`)
       }
 
-      try {
-        const rxPowerSamples: RxPowerSample[] = []
-        const rxTimestamp = new Date().toISOString().slice(0, 19).replace("T", " ")
+      if (historyEnabled()) {
+        try {
+          const rxPowerSamples: RxPowerSample[] = []
+          const rxTimestamp = new Date().toISOString().slice(0, 19).replace("T", " ")
 
-        for (const onu of polledOnus) {
-          const rxVal = typeof onu.rxPower === "number" ? onu.rxPower : parseFloat(String(onu.rxPower))
-          const txVal = typeof onu.txPower === "number" ? onu.txPower : parseFloat(String(onu.txPower))
+          for (const onu of polledOnus) {
+            const rxVal = typeof onu.rxPower === "number" ? onu.rxPower : parseFloat(String(onu.rxPower))
+            const txVal = typeof onu.txPower === "number" ? onu.txPower : parseFloat(String(onu.txPower))
 
-          if (!Number.isFinite(rxVal) && !Number.isFinite(txVal)) continue
+            if (!Number.isFinite(rxVal) && !Number.isFinite(txVal)) continue
 
-          rxPowerSamples.push({
-            oltId: olt.id,
-            onuId: onu.id,
-            rxPower: Number.isFinite(rxVal) ? rxVal : 0,
-            txPower: Number.isFinite(txVal) ? txVal : 0,
-            timestamp: rxTimestamp,
-          })
+            rxPowerSamples.push({
+              oltId: olt.id,
+              onuId: onu.id,
+              rxPower: Number.isFinite(rxVal) ? rxVal : 0,
+              txPower: Number.isFinite(txVal) ? txVal : 0,
+              timestamp: rxTimestamp,
+            })
+          }
+
+          if (rxPowerSamples.length > 0) {
+            await insertRxPowerSamples(rxPowerSamples)
+          }
+
+          rxPowerCleanupCounter++
+          if (rxPowerCleanupCounter >= 30) {
+            rxPowerCleanupCounter = 0
+            await cleanupOldRxPower(30)
+          }
+        } catch (rxError) {
+          console.warn(`[polling] RX power recording gagal untuk ${olt.name}: ${rxError instanceof Error ? rxError.message : rxError}`)
         }
-
-        if (rxPowerSamples.length > 0) {
-          await insertRxPowerSamples(rxPowerSamples)
-        }
-
-        rxPowerCleanupCounter++
-        if (rxPowerCleanupCounter >= 30) {
-          rxPowerCleanupCounter = 0
-          await cleanupOldRxPower(30)
-        }
-      } catch (rxError) {
-        console.warn(`[polling] RX power recording gagal untuk ${olt.name}: ${rxError instanceof Error ? rxError.message : rxError}`)
       }
 
       return { ok: true, message: result.message, onus: polledOnus, state: { ...savedState, onus: [] }, notification }

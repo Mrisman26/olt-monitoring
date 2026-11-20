@@ -22,16 +22,19 @@ import { SignalBadge } from "../ui/signal-badge"
 import { StatusBadge } from "@/components/status-badge"
 import { OnuActionDropdown } from "./onu-action-dropdown"
 import { formatRxPower, formatTemperature, rxTone, temperatureTone, num, formatNumber, zteInterfaceName } from "../utils"
+import { ALL_OLTS_ID } from "../types"
 
 export function OnuView(props: {
   olts: Olt[]
   selectedOlt?: Olt
+  selectedOltId: string
+  pollingAll: boolean
   query: string
   refreshTick: number
   onSelectOlt: (id: string) => void
   onQuery: (value: string) => void
   onRebootOnu: (onu: Onu) => void
-  onBulkReboot: (onus: Onu[]) => void
+  onBulkReboot: (onus: Onu[], olt: Olt | null) => void
   onDeleteOnu: (onu: Onu) => void
   onShowUncfg: () => void
   onHistory: (onu: Onu) => void
@@ -41,6 +44,7 @@ export function OnuView(props: {
   onInventory: (type: "olt" | "onu", item: Olt | Onu) => void
   onHwHistory: (type: "olt" | "onu", item: Olt | Onu) => void
   onPollOnu: (olt: Olt) => void
+  onPollAllOnu: () => void
   pollingOltId: string | null
 }) {
   const [expandedOnuId, setExpandedOnuId] = useState<string | null>(null)
@@ -76,15 +80,20 @@ export function OnuView(props: {
     return () => window.clearTimeout(timer)
   }, [props.query])
 
-  const rebootEnabled =
-    props.selectedOlt?.oidProfile === "zte-c320" &&
-    ((props.selectedOlt?.writeMode === "snmp" && Boolean(props.selectedOlt?.hasSnmpWrite)) ||
-      (props.selectedOlt?.writeMode === "cli" && Boolean(props.selectedOlt?.hasCliCredentials)))
+  const allOlts = props.selectedOltId === ALL_OLTS_ID
 
-  const polling = Boolean(props.selectedOlt && props.pollingOltId === props.selectedOlt.id)
+  const canWriteWith = (olt?: Olt | null) =>
+    olt?.oidProfile === "zte-c320" &&
+    ((olt.writeMode === "snmp" && Boolean(olt.hasSnmpWrite)) ||
+      (olt.writeMode === "cli" && Boolean(olt.hasCliCredentials)))
+
+  const rebootEnabled = canWriteWith(props.selectedOlt)
+  const polling = allOlts ? props.pollingAll : Boolean(props.selectedOlt && props.pollingOltId === props.selectedOlt.id)
 
   const ztePon = props.selectedOlt?.oidProfile === "zte-c320"
   const cardName = props.selectedOlt?.cardName?.trim() || "GTGH"
+
+  const oltForOnu = (onu: Onu) => props.olts.find((olt) => olt.id === onu.oltId)
 
   const totalRows = tableData.total
 
@@ -99,7 +108,7 @@ export function OnuView(props: {
     const requestPage = Math.min(currentPage, totalPagesFromData)
 
     const params = new URLSearchParams()
-    if (props.selectedOlt?.id) params.set("oltId", props.selectedOlt.id)
+    if (!allOlts && props.selectedOlt?.id) params.set("oltId", props.selectedOlt.id)
     if (debouncedQuery.trim()) params.set("query", debouncedQuery.trim())
     if (ponFilter) params.set("pon", ponFilter)
     params.set("status", statusFilter)
@@ -129,7 +138,7 @@ export function OnuView(props: {
     return () => {
       cancelled = true
     }
-  }, [props.selectedOlt?.id, debouncedQuery, statusFilter, ponFilter, sortKey, sortDirection, pageSize, currentPage, totalRows, props.refreshTick])
+  }, [allOlts, props.selectedOlt?.id, debouncedQuery, statusFilter, ponFilter, sortKey, sortDirection, pageSize, currentPage, totalRows, props.refreshTick])
 
   const startIndex = (safeCurrentPage - 1) * pageSize
 
@@ -196,10 +205,9 @@ export function OnuView(props: {
   }
 
   const selectedOnuList = paginatedOnus.filter((onu) => selectedOnuIds.has(onu.id))
-
-  useEffect(() => {
-    setSelectedOnuIds(new Set())
-  }, [props.selectedOlt?.id])
+  const selectedOltIds = new Set(selectedOnuList.map((onu) => onu.oltId))
+  const bulkOlt = selectedOltIds.size === 1 && selectedOnuList[0] ? oltForOnu(selectedOnuList[0]) ?? null : null
+  const bulkRebootEnabled = canWriteWith(bulkOlt)
 
   const ponLabel = (pon: string) => (ztePon ? `gpon-onu_1/${pon}` : `PON ${pon}`)
 
@@ -221,10 +229,11 @@ export function OnuView(props: {
           {/* OLT */}
           <select
             className="h-10 min-w-[190px] rounded-xl border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 outline-none transition focus:border-[var(--accent)] focus:ring-4 focus:ring-[var(--ring)] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-            value={props.selectedOlt?.id ?? ""}
+            value={props.selectedOltId}
             onChange={(event) => props.onSelectOlt(event.target.value)}
+            aria-label="Pilih OLT"
           >
-            <option value="">Pilih OLT</option>
+            <option value={ALL_OLTS_ID}>Semua OLT</option>
 
             {props.olts.map((olt) => (
               <option key={olt.id} value={olt.id}>
@@ -237,19 +246,22 @@ export function OnuView(props: {
           <button
             className={`inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-teal-600/25 bg-teal-600/10 px-4 text-sm font-semibold text-teal-800 shadow-sm transition hover:bg-teal-600/20 disabled:cursor-not-allowed disabled:opacity-50 ${polling ? "animate-pulse" : ""}`}
             type="button"
-            disabled={!props.selectedOlt || polling}
-            onClick={() => props.selectedOlt && props.onPollOnu(props.selectedOlt)}
+            disabled={props.olts.length === 0 || polling}
+            onClick={() => {
+              if (allOlts) props.onPollAllOnu()
+              else if (props.selectedOlt) props.onPollOnu(props.selectedOlt)
+            }}
           >
             <RefreshCcw className={`h-4 w-4 ${polling ? "animate-spin" : ""}`} aria-hidden="true" />
 
-            {polling ? "Polling..." : "Poll ONU"}
+            {polling ? "Polling..." : allOlts ? "Poll Semua OLT" : "Poll ONU"}
           </button>
 
-          {rebootEnabled && selectedOnuIds.size > 0 && (
+          {bulkRebootEnabled && selectedOnuIds.size > 0 && (
             <button
               className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-red-600/25 bg-red-600/10 px-4 text-sm font-semibold text-red-800 shadow-sm transition hover:bg-red-600/20 dark:border-red-400/25 dark:bg-red-400/10 dark:text-red-300 dark:hover:bg-red-400/20"
               type="button"
-              onClick={() => props.onBulkReboot(selectedOnuList)}
+              onClick={() => props.onBulkReboot(selectedOnuList, bulkOlt)}
             >
               <Power className="h-4 w-4" aria-hidden="true" />
               Reboot {selectedOnuIds.size} ONU
@@ -450,7 +462,13 @@ export function OnuView(props: {
                     </td>
                   </tr>
                 ) : (
-                  paginatedOnus.map((onu) => (
+                  paginatedOnus.map((onu) => {
+                    const rowOlt = oltForOnu(onu)
+                    const rowZtePon = rowOlt?.oidProfile === "zte-c320"
+                    const rowCardName = rowOlt?.cardName?.trim() || "GTGH"
+                    const rowRebootEnabled = canWriteWith(rowOlt)
+
+                    return (
                     <Fragment key={onu.id}>
                       <tr
                         className={`group bg-[var(--surface)] transition hover:bg-teal-600/5 ${
@@ -489,6 +507,9 @@ export function OnuView(props: {
                               </div>
 
                               <div className="mt-0.5 text-[11px] text-slate-400">ONU ID {onu.onuIndex}</div>
+                              {allOlts && (
+                                <div className="mt-0.5 text-[11px] font-semibold text-teal-600 dark:text-teal-400">{rowOlt?.name || "-"}</div>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -500,10 +521,10 @@ export function OnuView(props: {
 
                         {/* PON */}
                         <td className="px-4 py-3">
-                          {ztePon && onu.ponPort.includes("/") ? (
+                          {rowZtePon && onu.ponPort.includes("/") ? (
                             <span className="inline-flex flex-col items-start gap-0.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 font-mono text-xs font-semibold text-slate-700">
                               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                                {cardName} {onu.ponPort.split("/")[0]}
+                                {rowCardName} {onu.ponPort.split("/")[0]}
                               </span>
                               <span>{zteInterfaceName(onu.ponPort, onu.onuIndex)}</span>
                             </span>
@@ -521,7 +542,7 @@ export function OnuView(props: {
 
                         {/* Phase - 1:1 dengan CLI Phase state */}
                         <td className="px-4 py-3">
-                          {ztePon ? (
+                          {rowZtePon ? (
                             <span
                               className={`inline-flex rounded-lg border px-2.5 py-1 text-xs font-semibold ${
                                 onu.phaseState === "Online"
@@ -544,9 +565,9 @@ export function OnuView(props: {
                         {/* Distance - 1:1 dengan CLI ONU Distance */}
                         <td className="px-4 py-3">
                           <span className="font-mono text-xs font-medium text-slate-600">
-                            {ztePon ? (onu.distanceMeters && onu.distanceMeters > 0 ? `${onu.distanceMeters}m` : "N/A") : "-"}
+                            {rowZtePon ? (onu.distanceMeters && onu.distanceMeters > 0 ? `${onu.distanceMeters}m` : "N/A") : "-"}
                           </span>
-                          {ztePon && onu.configState && (
+                          {rowZtePon && onu.configState && (
                             <span
                               className={`ml-1 inline-flex rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
                                 onu.configState === "success" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
@@ -589,7 +610,7 @@ export function OnuView(props: {
                               <span className="mr-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Aksi</span>
                               <OnuActionDropdown
                                 onu={onu}
-                                rebootEnabled={rebootEnabled}
+                                rebootEnabled={rowRebootEnabled}
                                 onHistory={() => props.onHistory(onu)}
                                 onConfig={() => props.onConfig(onu)}
                                 onTraffic={() => props.onTraffic(onu)}
@@ -604,7 +625,8 @@ export function OnuView(props: {
                         </tr>
                       )}
                     </Fragment>
-                  ))
+                    )
+                  })
                 )}
               </tbody>
             </table>

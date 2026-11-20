@@ -36,6 +36,10 @@ export function normalizeMonitoringState(state: Partial<MonitoringState>): Monit
 
 let readyPromise: Promise<void> | null = null
 
+export function historyEnabled() {
+  return process.env["MONITOR_HISTORY_ENABLED"] !== "false"
+}
+
 async function getPool(): Promise<mysql.Pool> {
   const activePool = await getMysqlPool()
 
@@ -80,54 +84,59 @@ async function createTables(activePool: mysql.Pool) {
       data LONGTEXT NOT NULL,
       PRIMARY KEY (id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-    `CREATE TABLE IF NOT EXISTS olt_monitor_traffic (
-      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-      olt_id VARCHAR(100) NOT NULL,
-      onu_id VARCHAR(200) NOT NULL,
-      ts DATETIME NOT NULL,
-      input_bps BIGINT UNSIGNED NOT NULL DEFAULT 0,
-      output_bps BIGINT UNSIGNED NOT NULL DEFAULT 0,
-      input_pps INT UNSIGNED NOT NULL DEFAULT 0,
-      output_pps INT UNSIGNED NOT NULL DEFAULT 0,
-      PRIMARY KEY (id),
-      KEY idx_onu_ts (onu_id, ts),
-      KEY idx_olt_ts (olt_id, ts)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-    `CREATE TABLE IF NOT EXISTS olt_monitor_rx_power (
-      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-      olt_id VARCHAR(100) NOT NULL,
-      onu_id VARCHAR(200) NOT NULL,
-      rx_power DOUBLE NOT NULL DEFAULT 0,
-      tx_power DOUBLE NOT NULL DEFAULT 0,
-      ts DATETIME NOT NULL,
-      PRIMARY KEY (id),
-      KEY idx_rx_onu_ts (onu_id, ts),
-      KEY idx_rx_olt_ts (olt_id, ts)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-    `CREATE TABLE IF NOT EXISTS olt_monitor_hw_history (
-      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-      target_type ENUM('olt','onu') NOT NULL,
-      target_id VARCHAR(200) NOT NULL,
-      field_name VARCHAR(100) NOT NULL,
-      old_value TEXT,
-      new_value TEXT,
-      actor VARCHAR(100) DEFAULT 'system',
-      ts DATETIME NOT NULL,
-      PRIMARY KEY (id),
-      KEY idx_hw_target (target_type, target_id, ts)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-    `CREATE TABLE IF NOT EXISTS olt_monitor_onu_status_log (
-      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-      onu_id VARCHAR(200) NOT NULL,
-      olt_id VARCHAR(100) NOT NULL,
-      status ENUM('online','offline') NOT NULL,
-      cause VARCHAR(255) DEFAULT NULL,
-      ts DATETIME NOT NULL,
-      PRIMARY KEY (id),
-      KEY idx_status_onu_ts (onu_id, ts),
-      KEY idx_status_olt_ts (olt_id, ts)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   ]
+
+  if (historyEnabled()) {
+    statements.push(
+      `CREATE TABLE IF NOT EXISTS olt_monitor_traffic (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        olt_id VARCHAR(100) NOT NULL,
+        onu_id VARCHAR(200) NOT NULL,
+        ts DATETIME NOT NULL,
+        input_bps BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        output_bps BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        input_pps INT UNSIGNED NOT NULL DEFAULT 0,
+        output_pps INT UNSIGNED NOT NULL DEFAULT 0,
+        PRIMARY KEY (id),
+        KEY idx_onu_ts (onu_id, ts),
+        KEY idx_olt_ts (olt_id, ts)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+      `CREATE TABLE IF NOT EXISTS olt_monitor_rx_power (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        olt_id VARCHAR(100) NOT NULL,
+        onu_id VARCHAR(200) NOT NULL,
+        rx_power DOUBLE NOT NULL DEFAULT 0,
+        tx_power DOUBLE NOT NULL DEFAULT 0,
+        ts DATETIME NOT NULL,
+        PRIMARY KEY (id),
+        KEY idx_rx_onu_ts (onu_id, ts),
+        KEY idx_rx_olt_ts (olt_id, ts)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+      `CREATE TABLE IF NOT EXISTS olt_monitor_hw_history (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        target_type ENUM('olt','onu') NOT NULL,
+        target_id VARCHAR(200) NOT NULL,
+        field_name VARCHAR(100) NOT NULL,
+        old_value TEXT,
+        new_value TEXT,
+        actor VARCHAR(100) DEFAULT 'system',
+        ts DATETIME NOT NULL,
+        PRIMARY KEY (id),
+        KEY idx_hw_target (target_type, target_id, ts)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+      `CREATE TABLE IF NOT EXISTS olt_monitor_onu_status_log (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        onu_id VARCHAR(200) NOT NULL,
+        olt_id VARCHAR(100) NOT NULL,
+        status ENUM('online','offline') NOT NULL,
+        cause VARCHAR(255) DEFAULT NULL,
+        ts DATETIME NOT NULL,
+        PRIMARY KEY (id),
+        KEY idx_status_onu_ts (onu_id, ts),
+        KEY idx_status_olt_ts (olt_id, ts)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+    )
+  }
 
   for (const statement of statements) {
     await activePool.query(statement)
@@ -310,7 +319,7 @@ export async function initMonitoringDb() {
 }
 
 export async function insertTrafficSamples(samples: TrafficSample[]) {
-  if (samples.length === 0) return
+  if (!historyEnabled() || samples.length === 0) return
   const activePool = await getPool()
 
   for (let index = 0; index < samples.length; index += 200) {
@@ -324,6 +333,7 @@ export async function insertTrafficSamples(samples: TrafficSample[]) {
 }
 
 export async function readTrafficSamples(onuId: string, hours: number): Promise<TrafficSample[]> {
+  if (!historyEnabled()) return []
   try {
     const activePool = await getPool()
     const since = new Date(Date.now() - hours * 3600 * 1000).toISOString().slice(0, 19).replace("T", " ")
@@ -339,6 +349,7 @@ export async function readTrafficSamples(onuId: string, hours: number): Promise<
 }
 
 export async function cleanupOldTraffic(olderThanDays = 30) {
+  if (!historyEnabled()) return
   try {
     const activePool = await getPool()
     const cutoff = new Date(Date.now() - olderThanDays * 86400 * 1000).toISOString().slice(0, 19).replace("T", " ")
@@ -349,7 +360,7 @@ export async function cleanupOldTraffic(olderThanDays = 30) {
 }
 
 export async function insertRxPowerSamples(samples: RxPowerSample[]) {
-  if (samples.length === 0) return
+  if (!historyEnabled() || samples.length === 0) return
   const activePool = await getPool()
 
   for (let index = 0; index < samples.length; index += 200) {
@@ -363,6 +374,7 @@ export async function insertRxPowerSamples(samples: RxPowerSample[]) {
 }
 
 export async function readRxPowerSamples(onuId: string, hours: number): Promise<RxPowerSample[]> {
+  if (!historyEnabled()) return []
   try {
     const activePool = await getPool()
     const since = new Date(Date.now() - hours * 3600 * 1000).toISOString().slice(0, 19).replace("T", " ")
@@ -378,6 +390,7 @@ export async function readRxPowerSamples(onuId: string, hours: number): Promise<
 }
 
 export async function cleanupOldRxPower(olderThanDays = 30) {
+  if (!historyEnabled()) return
   try {
     const activePool = await getPool()
     const cutoff = new Date(Date.now() - olderThanDays * 86400 * 1000).toISOString().slice(0, 19).replace("T", " ")
@@ -388,6 +401,7 @@ export async function cleanupOldRxPower(olderThanDays = 30) {
 }
 
 export async function insertHardwareHistory(entry: HardwareHistoryEntry) {
+  if (!historyEnabled()) return
   try {
     const activePool = await getPool()
     await activePool.query(
@@ -400,6 +414,7 @@ export async function insertHardwareHistory(entry: HardwareHistoryEntry) {
 }
 
 export async function readHardwareHistory(targetType: "olt" | "onu", targetId: string, limit = 50): Promise<HardwareHistoryEntry[]> {
+  if (!historyEnabled()) return []
   try {
     const activePool = await getPool()
     const [rows] = await activePool.query<mysql.RowDataPacket[]>(
@@ -414,6 +429,7 @@ export async function readHardwareHistory(targetType: "olt" | "onu", targetId: s
 }
 
 export async function insertOnuStatusLog(entry: OnuStatusLog) {
+  if (!historyEnabled()) return
   try {
     const activePool = await getPool()
     await activePool.query(
@@ -426,6 +442,7 @@ export async function insertOnuStatusLog(entry: OnuStatusLog) {
 }
 
 export async function readOnuStatusLog(onuId: string, limit = 200): Promise<OnuStatusLog[]> {
+  if (!historyEnabled()) return []
   try {
     const activePool = await getPool()
     const [rows] = await activePool.query<mysql.RowDataPacket[]>(
@@ -440,6 +457,7 @@ export async function readOnuStatusLog(onuId: string, limit = 200): Promise<OnuS
 }
 
 export async function cleanupOldOnuStatusLog(olderThanDays = 90) {
+  if (!historyEnabled()) return
   try {
     const activePool = await getPool()
     const cutoff = new Date(Date.now() - olderThanDays * 86400 * 1000).toISOString().slice(0, 19).replace("T", " ")

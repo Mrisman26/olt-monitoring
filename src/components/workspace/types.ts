@@ -58,6 +58,8 @@ export type OltAccent = {
   label: string
 }
 
+export const ALL_OLTS_ID = "__all__"
+
 export const legacyStorageKey = "mikroin-monitor-state-v2"
 
 export const panelClass = "premium-card rounded-2xl p-5"

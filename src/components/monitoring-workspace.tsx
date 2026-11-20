@@ -42,6 +42,7 @@ import {
   type PollOnuNotification,
   type OltForm,
   type StartupStatus,
+  ALL_OLTS_ID,
   emptyState,
   emptyForm,
 } from "./workspace/types"
@@ -67,6 +68,7 @@ export function MonitoringWorkspace({ view }: { view: View }) {
   const [selectedOltId, setSelectedOltId] = useState("")
   const [editingOltId, setEditingOltId] = useState<string | null>(null)
   const [pollingOltId, setPollingOltId] = useState<string | null>(null)
+  const [pollingAll, setPollingAll] = useState(false)
   const [query, setQuery] = useState("")
   const [notice, setNotice] = useState("Memuat database monitoring...")
   const [toast, setToast] = useState<ToastState>(null)
@@ -74,7 +76,7 @@ export function MonitoringWorkspace({ view }: { view: View }) {
   const [deleteCandidate, setDeleteCandidate] = useState<Olt | null>(null)
   const [clearAlertsMode, setClearAlertsMode] = useState<ClearAlertsMode | null>(null)
   const [rebootCandidate, setRebootCandidate] = useState<Onu | null>(null)
-  const [bulkRebootCandidates, setBulkRebootCandidates] = useState<Onu[] | null>(null)
+  const [bulkRebootCandidates, setBulkRebootCandidates] = useState<{ onus: Onu[]; olt: Olt | null } | null>(null)
   const [deleteOnuCandidate, setDeleteOnuCandidate] = useState<Onu | null>(null)
   const [historyCandidate, setHistoryCandidate] = useState<Onu | null>(null)
   const [configCandidate, setConfigCandidate] = useState<Onu | null>(null)
@@ -216,6 +218,11 @@ export function MonitoringWorkspace({ view }: { view: View }) {
   }
 
   const selectedOlt = olts.find((olt) => olt.id === selectedOltId) ?? olts[0]
+  const onuSelectedOlt = selectedOltId === ALL_OLTS_ID ? undefined : selectedOlt
+
+  function resolveOltForOnu(onu: Onu) {
+    return olts.find((olt) => olt.id === onu.oltId) ?? null
+  }
 
   const onlineOlts = summary.onlineOlts
   const totalOnu = summary.totalOnu
@@ -411,8 +418,8 @@ export function MonitoringWorkspace({ view }: { view: View }) {
     setRebootCandidate(onu)
   }
 
-  function bulkRebootOnu(onus: Onu[]) {
-    setBulkRebootCandidates(onus)
+  function bulkRebootOnu(onus: Onu[], olt: Olt | null) {
+    setBulkRebootCandidates({ onus, olt })
   }
 
   function openOnuHistory(onu: Onu) {
@@ -488,10 +495,16 @@ export function MonitoringWorkspace({ view }: { view: View }) {
     setNotice(result.message)
   }
 
-  async function pollOnu(olt: Olt, options: { silent?: boolean } = {}) {
-    if (pollingLocksRef.current.has(olt.id)) return
+  async function pollOnu(
+    olt: Olt,
+    options: { silent?: boolean; suppressToast?: boolean } = {},
+  ): Promise<{ ok: boolean; message: string }> {
+    if (pollingLocksRef.current.has(olt.id)) {
+      return { ok: false, message: `${olt.name} sedang diproses.` }
+    }
 
     const silent = Boolean(options.silent)
+    const suppressToast = Boolean(options.suppressToast)
     pollingLocksRef.current.add(olt.id)
     if (!silent) {
       setNotice(`Membaca data ONU/ONT dari ${olt.name}...`)
@@ -517,11 +530,11 @@ export function MonitoringWorkspace({ view }: { view: View }) {
           stateRef.current = result.state
           setStoredState(result.state)
         }
-        if (result.notification && ((result.notification.sent ?? 0) > 0 || (result.notification.failed ?? 0) > 0)) {
+        if (!suppressToast && result.notification && ((result.notification.sent ?? 0) > 0 || (result.notification.failed ?? 0) > 0)) {
           showToast(result.notification.message, (result.notification.failed ?? 0) > 0 ? "error" : "success")
         }
         if (!silent) setNotice(result.message)
-        return
+        return { ok: false, message: result.message }
       }
 
       const currentState = stateRef.current
@@ -548,18 +561,51 @@ export function MonitoringWorkspace({ view }: { view: View }) {
       setRefreshTick((tick) => tick + 1)
 
       const notificationMessage = result.notification?.message
-      if (!silent) {
-        setNotice(notificationMessage ? `${result.message} ${notificationMessage}` : result.message)
-      }
-      if (result.notification && ((result.notification.sent ?? 0) > 0 || (result.notification.failed ?? 0) > 0)) {
+      const message = notificationMessage ? `${result.message} ${notificationMessage}` : result.message
+      if (!silent) setNotice(message)
+      if (!suppressToast && result.notification && ((result.notification.sent ?? 0) > 0 || (result.notification.failed ?? 0) > 0)) {
         showToast(result.notification.message, (result.notification.failed ?? 0) > 0 ? "error" : "success")
       }
+      return { ok: true, message }
     } catch (error) {
-      if (!silent) setNotice(error instanceof Error ? error.message : "Polling ONU gagal.")
+      const message = error instanceof Error ? error.message : "Polling ONU gagal."
+      if (!silent) setNotice(message)
+      return { ok: false, message }
     } finally {
       pollingLocksRef.current.delete(olt.id)
       if (!silent) setPollingOltId(null)
     }
+  }
+
+  async function pollAllOnus() {
+    const targets = stateRef.current.olts
+    if (!targets.length || pollingAll) return
+
+    setPollingAll(true)
+    setNotice(`Mengecek ONU/ONT dari ${targets.length} OLT...`)
+
+    const queue = [...targets]
+    const results: { name: string; ok: boolean; message: string }[] = []
+    const worker = async () => {
+      while (queue.length > 0) {
+        const olt = queue.shift()
+        if (!olt) return
+        const result = await pollOnu(olt, { silent: true, suppressToast: true })
+        results.push({ name: olt.name, ...result })
+      }
+    }
+
+    await Promise.all(Array.from({ length: Math.min(3, targets.length) }, () => worker()))
+
+    const failed = results.filter((result) => !result.ok)
+    const message =
+      failed.length === 0
+        ? `Pengecekan ${targets.length} OLT selesai.`
+        : `Pengecekan selesai: ${targets.length - failed.length}/${targets.length} OLT berhasil. Gagal: ${failed.map((result) => result.name).join(", ")}.`
+
+    setNotice(message)
+    showToast(message, failed.length === 0 ? "success" : "error")
+    setPollingAll(false)
   }
 
   useEffect(() => {
@@ -620,21 +666,21 @@ export function MonitoringWorkspace({ view }: { view: View }) {
       {rebootCandidate && (
         <RebootConfirmDialog
           onu={rebootCandidate}
-          olt={selectedOlt}
+          olt={resolveOltForOnu(rebootCandidate)}
           onCancel={() => setRebootCandidate(null)}
         />
       )}
       {bulkRebootCandidates && (
         <BulkRebootDialog
-          onus={bulkRebootCandidates}
-          olt={selectedOlt}
+          onus={bulkRebootCandidates.onus}
+          olt={bulkRebootCandidates.olt}
           onCancel={() => setBulkRebootCandidates(null)}
         />
       )}
       {deleteOnuCandidate && (
         <DeleteOnuConfirmDialog
           onu={deleteOnuCandidate}
-          olt={selectedOlt}
+          olt={resolveOltForOnu(deleteOnuCandidate)}
           onCancel={() => setDeleteOnuCandidate(null)}
         />
       )}
@@ -642,7 +688,7 @@ export function MonitoringWorkspace({ view }: { view: View }) {
       {historyCandidate && (
         <OnuHistoryDialog
           onu={historyCandidate}
-          olt={selectedOlt}
+          olt={resolveOltForOnu(historyCandidate)}
           onClose={() => setHistoryCandidate(null)}
         />
       )}
@@ -650,7 +696,7 @@ export function MonitoringWorkspace({ view }: { view: View }) {
       {configCandidate && (
         <OnuConfigDialog
           onu={configCandidate}
-          olt={selectedOlt}
+          olt={resolveOltForOnu(configCandidate)}
           onClose={() => setConfigCandidate(null)}
         />
       )}
@@ -658,14 +704,14 @@ export function MonitoringWorkspace({ view }: { view: View }) {
       {trafficCandidate && (
         <OnuTrafficDialog
           onu={trafficCandidate}
-          olt={selectedOlt}
+          olt={resolveOltForOnu(trafficCandidate)}
           onClose={() => setTrafficCandidate(null)}
         />
       )}
 
-      {showUncfg && selectedOlt && (
+      {showUncfg && onuSelectedOlt && (
         <UncfgOnuDialog
-          olt={selectedOlt}
+          olt={onuSelectedOlt}
           onClose={() => setShowUncfg(false)}
         />
       )}
@@ -673,7 +719,7 @@ export function MonitoringWorkspace({ view }: { view: View }) {
       {rxPowerCandidate && (
         <RxPowerHistoryDialog
           onu={rxPowerCandidate}
-          olt={selectedOlt}
+          olt={resolveOltForOnu(rxPowerCandidate)}
           onClose={() => setRxPowerCandidate(null)}
         />
       )}
@@ -738,8 +784,11 @@ export function MonitoringWorkspace({ view }: { view: View }) {
 
       {view === "onus" && (
         <OnuView
+          key={selectedOltId}
           olts={olts}
-          selectedOlt={selectedOlt}
+          selectedOlt={onuSelectedOlt}
+          selectedOltId={selectedOltId}
+          pollingAll={pollingAll}
           query={query}
           refreshTick={refreshTick}
           onSelectOlt={setSelectedOltId}
@@ -755,6 +804,7 @@ export function MonitoringWorkspace({ view }: { view: View }) {
           onInventory={(type, item) => setInventoryCandidate({ type, item })}
           onHwHistory={(type, item) => setHwHistoryCandidate({ type, item })}
           onPollOnu={pollOnu}
+          onPollAllOnu={pollAllOnus}
           pollingOltId={pollingOltId}
         />
       )}
